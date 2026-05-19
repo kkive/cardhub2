@@ -221,8 +221,8 @@ export function getBootstrapStatus() {
   return request<AdminBootstrapStatus>('/admin/bootstrap-status');
 }
 
-export function bootstrapAdmin(data: { token?: string; email?: string }) {
-  return request<{ id: string; email: string; role: string }>(
+export function bootstrapAdmin(data: { token?: string; email?: string; password?: string }) {
+  return request<{ success: boolean; adminId: string; email: string }>(
     '/admin/bootstrap',
     { method: 'POST', body: JSON.stringify(data) },
   );

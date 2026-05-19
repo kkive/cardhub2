@@ -91,6 +91,8 @@ curl -f http://127.0.0.1:3000/api/health
 
 The prod compose file uses pre-built images (no `build` sections). The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` by default for the server's own nginx. MySQL, Redis, and Meilisearch are internal to the Docker network. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. After configuring the server's own nginx, the public health check is `https://your-domain/api/health`.
 
+**First admin:** On first startup, if no admin exists in the database, the API auto-creates one using `ADMIN_EMAIL` + `ADMIN_PASSWORD` from `.env`. Once an admin exists, these env vars are ignored (password is never reset). Alternatively, open `/admin` in the browser to manually create the first admin with email + password — then log in at `/login`.
+
 ## Container Roles
 
 | Service | Role |
@@ -203,6 +205,7 @@ See `.env.example` for all required environment variables. Key settings:
 - `DOCKER_MEILI_HOST` - Override Meilisearch URL for Docker containers (default: `http://meilisearch:7700`)
 - `PASSKEY_RP_ID` / `PASSKEY_ORIGIN` - WebAuthn config
 - `ADMIN_EMAIL` - Admin user email for seeding
+- `ADMIN_PASSWORD` - First admin password (production only). Auto-creates an admin on startup if no admin exists yet. Ignored once an admin is present. You can also create the first admin via `/admin` in the browser.
 - `STORAGE_DIR` - File storage path (host-local dev, e.g. `./storage`)
 - `DOCKER_STORAGE_DIR` - File storage path inside Docker containers (default: `/app/storage`)
 - `STRIPE_SECRET_KEY` - Stripe API secret key

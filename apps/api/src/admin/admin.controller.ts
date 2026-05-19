@@ -14,7 +14,7 @@ export class AdminController {
 
   @Public()
   @Post('bootstrap')
-  async bootstrap(@Body() body: { token?: string; email?: string }) {
-    return this.adminService.bootstrap(body.token, body.email);
+  async bootstrap(@Body() body: { token?: string; email?: string; password?: string }) {
+    return this.adminService.bootstrap(body.token, body.email, body.password);
   }
 }

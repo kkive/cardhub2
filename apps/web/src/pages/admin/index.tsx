@@ -133,11 +133,23 @@ const OverviewTab: React.FC = () => {
     fetchAll();
   }, []);
 
-  const handleBootstrap = async (values: { email?: string; token?: string }) => {
-    const { data, error } = await bootstrapAdmin(values);
+  const handleBootstrap = async (values: { email?: string; password?: string; confirmPassword?: string; token?: string }) => {
+    if (!values.email || !values.password) {
+      message.error('请输入邮箱和密码');
+      return;
+    }
+    if (values.password.length < 8) {
+      message.error('密码至少 8 位');
+      return;
+    }
+    if (values.password !== values.confirmPassword) {
+      message.error('两次密码不一致');
+      return;
+    }
+    const { error } = await bootstrapAdmin({ email: values.email, password: values.password, token: values.token });
     if (error) message.error(error);
     else {
-      message.success(`管理员 ${data?.email} 已创建`);
+      message.success('管理员已创建，请登录');
       fetchAll();
     }
   };
@@ -188,8 +200,27 @@ const OverviewTab: React.FC = () => {
             <Alert type="success" message="管理员已存在" showIcon banner />
           ) : (
             <Form form={bootForm} layout="vertical" onFinish={handleBootstrap} size="small">
-              <Form.Item name="email" label="邮箱" rules={[{ required: true }]}>
+              <Form.Item name="email" label="邮箱" rules={[{ required: true, type: 'email' }]}>
                 <Input placeholder="admin@example.com" />
+              </Form.Item>
+              <Form.Item name="password" label="密码" rules={[{ required: true, min: 8, message: '密码至少 8 位' }]}>
+                <Input.Password placeholder="设置管理员密码" />
+              </Form.Item>
+              <Form.Item
+                name="confirmPassword"
+                label="确认密码"
+                dependencies={['password']}
+                rules={[
+                  { required: true, message: '请确认密码' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('password') === value) return Promise.resolve();
+                      return Promise.reject(new Error('两次密码不一致'));
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password placeholder="再次输入密码" />
               </Form.Item>
               <Form.Item name="token" label="令牌 (可选)">
                 <Input placeholder="初始化令牌" />

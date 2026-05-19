@@ -131,6 +131,7 @@ pnpm docker:down           # Stop all Docker services
   - Local dev: `localhost` / `http://localhost:8000`
   - Production: domain name / `https://domain` (HTTPS required)
 - `ADMIN_EMAIL` - Email for the seeded admin user.
+- `ADMIN_PASSWORD` - First admin password (production only). If set and no admin exists, the API auto-creates an admin on startup. Ignored once any admin exists. The `/admin` web UI also supports manual first-admin creation with email + password.
 - `STORAGE_DIR` - File storage directory for host-local dev (default `./storage`). Not used by Docker containers.
 - `DOCKER_STORAGE_DIR` - File storage directory inside Docker containers (default `/app/storage`).
 - `STRIPE_SECRET_KEY` - Stripe API secret key for webhook verification.
