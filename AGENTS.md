@@ -94,7 +94,7 @@ The web app uses a sticky top nav bar layout (`layouts/index.tsx`) with a horizo
 
 **Mode B - Local Development:** `docker compose up -d mysql redis meilisearch` (or `pnpm start:infra`) + `pnpm dev`. Only infra runs in Docker; API and Web run on the host with hot-reload. **Do not run the full Docker stack and `pnpm dev` at the same time** - ports 3000 (api) and 8000 (web) will conflict.
 
-**Mode C - Production (Docker Hub):** Build and push a single image with `scripts/docker-build-push.ps1 <namespace> [tag] [platform]` (or `.sh`). Uses `docker buildx build --push` to avoid manifest list / attestation issues; default platform is `linux/amd64`. Requires `docker login` first. Docker Hub repo: `cards-hub`. The image `<namespace>/cards-hub:<tag>` (e.g. `kanggejie/cards-hub:v1`) contains API, BullMQ worker, and web static files. Docker Hub no longer needs `cards-hub-api`, `cards-hub-worker`, or `cards-hub-web` repositories. On the server: copy `docker-compose.prod.yml` + `.env.production.example` (rename to `.env`, fill secrets), then `docker compose -f docker-compose.prod.yml pull && up -d`. The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` for the server's own nginx. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. Uses `docker-compose.prod.yml` (no `build` sections). MySQL, Redis, and Meilisearch run as official images.
+**Mode C - Production (Docker Hub):** Build and push a single image with `scripts/docker-build-push.ps1 <namespace> [tag] [platform]` (or `.sh`). Uses `docker buildx build --push` to avoid manifest list / attestation issues; default platform is `linux/amd64`. Requires `docker login` first. Docker Hub repo: `cards-hub`. The image `<namespace>/cards-hub:<tag>` (e.g. `kanggejie/cards-hub:v1`) contains API, BullMQ worker, and web static files. Docker Hub no longer needs `cards-hub-api`, `cards-hub-worker`, or `cards-hub-web` repositories. On the server: copy `docker-compose.prod.yml` + `.env.production.example` (rename to `.env`, fill secrets), then `docker compose -f docker-compose.prod.yml pull && up -d`. On startup the app container waits for the database TCP port to become reachable (up to 120 s, configurable via `DB_WAIT_TIMEOUT_SECONDS` / `DB_WAIT_INTERVAL_SECONDS`) before running Prisma migrations. The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` for the server's own nginx. Set `WEB_BIND=0.0.0.0` in `.env` to expose the frontend directly at `http://SERVER_IP:8000`. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. Uses `docker-compose.prod.yml` (no `build` sections). MySQL, Redis, and Meilisearch run as official images.
 
 ## Local Commands
 
@@ -137,6 +137,10 @@ pnpm docker:down           # Stop all Docker services
 - `STRIPE_SECRET_KEY` - Stripe API secret key for webhook verification.
 - `STRIPE_WEBHOOK_SECRET` - Stripe webhook signature verification secret.
 - `YIPAY_SECRET` - YiPay MD5 signature secret.
+- `API_BIND` / `API_PORT` - Host port binding for the API (default `127.0.0.1:3000`). Always loopback for host nginx.
+- `WEB_BIND` / `WEB_PORT` - Host port binding for the frontend (default `127.0.0.1:8000`). Set `WEB_BIND=0.0.0.0` to expose directly at `http://SERVER_IP:8000`.
+- `DB_WAIT_TIMEOUT_SECONDS` - Max seconds the entrypoint waits for the database TCP port (default `120`).
+- `DB_WAIT_INTERVAL_SECONDS` - Seconds between TCP retry attempts (default `2`).
 - Never commit `.env` files. Only `.env.example` is tracked.
 - **Production:** `.env.production.example` is the template for server deployments. Copy to `.env` on the server. Contains `DOCKERHUB_NAMESPACE`, `IMAGE_TAG`, MySQL secrets, Meilisearch keys, passkey domain, JWT secret, and optional payment secrets.
 

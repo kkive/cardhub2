@@ -89,7 +89,9 @@ docker compose -f docker-compose.prod.yml up -d
 curl -f http://127.0.0.1:3000/api/health
 ```
 
-The prod compose file uses pre-built images (no `build` sections). The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` by default for the server's own nginx. MySQL, Redis, and Meilisearch are internal to the Docker network. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. After configuring the server's own nginx, the public health check is `https://your-domain/api/health`.
+The prod compose file uses pre-built images (no `build` sections). On startup, the app container waits for the database TCP port to become reachable (up to 120 s, configurable via `DB_WAIT_TIMEOUT_SECONDS` / `DB_WAIT_INTERVAL_SECONDS`) before running Prisma migrations — this prevents the P1001 "Can't reach database server" race condition.
+
+**Port bindings:** The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` by default for the server's own nginx. To expose the frontend directly at `http://SERVER_IP:8000` without host nginx, set `WEB_BIND=0.0.0.0` in `.env`. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. After configuring the server's own nginx, the public health check is `https://your-domain/api/health`.
 
 **First admin:** On first startup, if no admin exists in the database, the API auto-creates one using `ADMIN_EMAIL` + `ADMIN_PASSWORD` from `.env`. Once an admin exists, these env vars are ignored (password is never reset). Alternatively, open `/admin` in the browser to manually create the first admin with email + password — then log in at `/login`.
 
