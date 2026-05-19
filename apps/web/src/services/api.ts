@@ -40,7 +40,9 @@ export interface Tag {
 
 export interface HealthStatus {
   status: string;
-  checks: Record<string, { status: string; message?: string }>;
+  service: string;
+  timestamp: string;
+  checks: Record<string, { ok: boolean; error?: string }>;
 }
 
 export interface AdminBootstrapStatus {

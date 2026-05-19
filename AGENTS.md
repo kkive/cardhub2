@@ -22,6 +22,10 @@ cards-hub/
 +-- scripts/
 |   +-- docker-build-push.ps1    - Build & push images to Docker Hub (PowerShell)
 |   +-- docker-build-push.sh     - Build & push images to Docker Hub (Bash)
+|   +-- check-encoding.js        - Scan source for mojibake (garbled UTF-8)
+|   +-- prod-smoke-test.sh       - Server-side smoke test (live, health, web)
+|   +-- release-check.ps1        - Pre-release quality gate (PowerShell)
+|   +-- release-check.sh         - Pre-release quality gate (Bash)
 +-- AGENTS.md         - This file (AI collaboration rules)
 +-- README.md         - Human setup guide
 ```
@@ -62,7 +66,7 @@ cards-hub/
 
 | Module | Path | Description |
 |--------|------|-------------|
-| Health | `/api/health` | Dependency health checks (DB, Redis, Meilisearch, storage) |
+| Health | `/api/live`, `/api/health` | Liveness probe (lightweight 200) and readiness probe (200/503 with dependency checks) |
 | Auth | `/api/auth` | Register, login, current user (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`) |
 | Cards | `/api/cards` | CRUD, public list/search, admin list (`/api/cards/admin/list`), publish/unpublish |
 | Tags | `/api/tags` | List and create tags |
@@ -94,7 +98,7 @@ The web app uses a sticky top nav bar layout (`layouts/index.tsx`) with a horizo
 
 **Mode B - Local Development:** `docker compose up -d mysql redis meilisearch` (or `pnpm start:infra`) + `pnpm dev`. Only infra runs in Docker; API and Web run on the host with hot-reload. **Do not run the full Docker stack and `pnpm dev` at the same time** - ports 3000 (api) and 8000 (web) will conflict.
 
-**Mode C - Production (Docker Hub):** Build and push a single image with `scripts/docker-build-push.ps1 <namespace> [tag] [platform]` (or `.sh`). Uses `docker buildx build --push` to avoid manifest list / attestation issues; default platform is `linux/amd64`. Requires `docker login` first. Docker Hub repo: `cards-hub`. The image `<namespace>/cards-hub:<tag>` (e.g. `kanggejie/cards-hub:v1`) contains API, BullMQ worker, and web static files. Docker Hub no longer needs `cards-hub-api`, `cards-hub-worker`, or `cards-hub-web` repositories. On the server: copy `docker-compose.prod.yml` + `.env.production.example` (rename to `.env`, fill secrets), then `docker compose -f docker-compose.prod.yml pull && up -d`. On startup the app container waits for the database TCP port to become reachable (up to 120 s, configurable via `DB_WAIT_TIMEOUT_SECONDS` / `DB_WAIT_INTERVAL_SECONDS`) before running Prisma migrations. The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` for the server's own nginx. Set `WEB_BIND=0.0.0.0` in `.env` to expose the frontend directly at `http://SERVER_IP:8000`. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. Uses `docker-compose.prod.yml` (no `build` sections). MySQL, Redis, and Meilisearch run as official images.
+**Mode C - Production (Docker Hub):** Build and push a single image with `scripts/docker-build-push.ps1 <namespace> [tag] [platform]` (or `.sh`). Uses `docker buildx build --push` to avoid manifest list / attestation issues; default platform is `linux/amd64`. Requires `docker login` first. Docker Hub repo: `cards-hub`. The image `<namespace>/cards-hub:<tag>` (e.g. `kanggejie/cards-hub:v1`) contains API, BullMQ worker, and web static files. On the server: copy `docker-compose.prod.yml` + `.env.production.example` (rename to `.env`, fill secrets -- lines marked [MUST CHANGE]), then `docker compose -f docker-compose.prod.yml pull && up -d`. On startup the entrypoint: (1) validates production env vars (rejects empty or placeholder secrets), (2) waits for DB, Redis, and Meilisearch TCP ports, (3) runs Prisma migrations, (4) starts supervisord. The app container binds API to `127.0.0.1:3000` and web to `0.0.0.0:8000` by default. Set `WEB_BIND=127.0.0.1` in `.env` to restrict web to host nginx only. The container has a built-in healthcheck hitting `/api/health` every 30s. Run `sh scripts/prod-smoke-test.sh` on the server to verify the deployment. Pre-release: `.\scripts\release-check.ps1` (PowerShell) or `./scripts/release-check.sh` (Bash).
 
 ## Local Commands
 
@@ -138,11 +142,13 @@ pnpm docker:down           # Stop all Docker services
 - `STRIPE_WEBHOOK_SECRET` - Stripe webhook signature verification secret.
 - `YIPAY_SECRET` - YiPay MD5 signature secret.
 - `API_BIND` / `API_PORT` - Host port binding for the API (default `127.0.0.1:3000`). Always loopback for host nginx.
-- `WEB_BIND` / `WEB_PORT` - Host port binding for the frontend (default `127.0.0.1:8000`). Set `WEB_BIND=0.0.0.0` to expose directly at `http://SERVER_IP:8000`.
+- `WEB_BIND` / `WEB_PORT` - Host port binding for the frontend (default `0.0.0.0:8000`). Set `WEB_BIND=127.0.0.1` to restrict web to host nginx only.
 - `DB_WAIT_TIMEOUT_SECONDS` - Max seconds the entrypoint waits for the database TCP port (default `120`).
 - `DB_WAIT_INTERVAL_SECONDS` - Seconds between TCP retry attempts (default `2`).
 - Never commit `.env` files. Only `.env.example` is tracked.
 - **Production:** `.env.production.example` is the template for server deployments. Copy to `.env` on the server. Contains `DOCKERHUB_NAMESPACE`, `IMAGE_TAG`, MySQL secrets, Meilisearch keys, passkey domain, JWT secret, and optional payment secrets.
+- **Production fail-fast:** The entrypoint validates required env vars when `NODE_ENV=production`. Rejects empty or placeholder values for `JWT_SECRET`, `MYSQL_PASSWORD`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`, `ADMIN_PASSWORD`, `MEILI_API_KEY`/`MEILI_MASTER_KEY`. Container refuses to start if any are missing.
+- **Service readiness:** The entrypoint waits for DB, Redis, and Meilisearch TCP ports before running migrations. Uses `DB_WAIT_TIMEOUT_SECONDS`/`DB_WAIT_INTERVAL_SECONDS` for DB, `SERVICE_WAIT_TIMEOUT_SECONDS`/`SERVICE_WAIT_INTERVAL_SECONDS` for Redis/Meili (all default 120s/2s).
 
 ## Storage Rules
 
@@ -210,11 +216,16 @@ Before merging any batch:
 3. `pnpm build:api` compiles the API (after prisma generate).
 4. `pnpm build:web` compiles the web app.
 5. `pnpm typecheck` passes with zero errors.
-6. `docker compose config` validates the compose file.
-7. `docker compose -f docker-compose.prod.yml config` validates the production compose file.
-8. `.dockerignore` excludes `node_modules`, `dist`, `.git`, `.env`, caches, and other local artifacts so Docker builds don't tar Windows junctions or ship secrets.
-9. No paid files are exposed via nginx `default.conf`.
-10. All env vars referenced in code have entries in `.env.example`.
-11. AGENTS.md is up to date with any architecture changes.
-12. Mobile viewports (390x844, 430x932) show no horizontal overflow on `/cards`, `/collections`, `/admin`, `/login`, `/register`.
-13. Admin workflow verified end-to-end: create card draft -> publish -> create collection draft -> publish -> order lookup.
+6. `pnpm lint` passes (typecheck + mojibake encoding check).
+7. `docker compose config` validates the compose file.
+8. `docker compose -f docker-compose.prod.yml config` validates the production compose file.
+9. `.dockerignore` excludes `node_modules`, `dist`, `.git`, `.env`, caches, and other local artifacts so Docker builds don't tar Windows junctions or ship secrets.
+10. No paid files are exposed via nginx `default.conf`.
+11. All env vars referenced in code have entries in `.env.example`.
+12. AGENTS.md is up to date with any architecture changes.
+13. Mobile viewports (390x844, 430x932) show no horizontal overflow on `/cards`, `/collections`, `/admin`, `/login`, `/register`.
+14. Admin workflow verified end-to-end: create card draft -> publish -> create collection draft -> publish -> order lookup.
+15. `/api/live` returns HTTP 200 with `{ status: 'ok' }`.
+16. `/api/health` returns HTTP 200 when all deps are up, HTTP 503 when any dep is down.
+17. Production entrypoint rejects placeholder secrets (e.g. `change-me-*`) when `NODE_ENV=production`.
+18. `node scripts/check-encoding.js` finds no mojibake in source files.

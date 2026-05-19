@@ -14,6 +14,14 @@ export class HealthService {
     @Inject(MEILISEARCH_CLIENT) private readonly meili: MeiliSearch,
   ) {}
 
+  live() {
+    return {
+      status: 'ok',
+      service: 'cards-hub-api',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   async check() {
     const [db, redis, meili, storage] = await Promise.allSettled([
       this.checkDb(),
@@ -22,16 +30,20 @@ export class HealthService {
       this.checkStorage(),
     ]);
 
+    const checks = {
+      database: this.resultToStatus(db),
+      redis: this.resultToStatus(redis),
+      meilisearch: this.resultToStatus(meili),
+      storage: this.resultToStatus(storage),
+    };
+
+    const allOk = Object.values(checks).every((c) => c.ok);
+
     return {
-      status: 'ok',
+      status: allOk ? 'ok' : 'error',
       service: 'cards-hub-api',
       timestamp: new Date().toISOString(),
-      dependencies: {
-        database: this.resultToStatus(db),
-        redis: this.resultToStatus(redis),
-        meilisearch: this.resultToStatus(meili),
-        storage: this.resultToStatus(storage),
-      },
+      checks,
     };
   }
 

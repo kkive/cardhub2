@@ -40,10 +40,12 @@ services:
     image: ${DOCKERHUB_NAMESPACE:?Set DOCKERHUB_NAMESPACE}/cards-hub:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
       DATABASE_URL: ${DOCKER_DATABASE_URL:-mysql://cards:${MYSQL_PASSWORD:?}@mysql:3306/${MYSQL_DATABASE:-cards_hub}}
       REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
       MEILI_HOST: ${DOCKER_MEILI_HOST:-http://meilisearch:7700}
       MEILI_API_KEY: ${MEILI_API_KEY:-${MEILI_MASTER_KEY}}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       NODE_ENV: production
       PORT: 3000
       PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-Cards hub}
@@ -60,8 +62,14 @@ services:
       RUN_MIGRATIONS: true
       DB_WAIT_TIMEOUT_SECONDS: ${DB_WAIT_TIMEOUT_SECONDS:-120}
       DB_WAIT_INTERVAL_SECONDS: ${DB_WAIT_INTERVAL_SECONDS:-2}
-    # API_BIND / WEB_BIND default to 127.0.0.1 for host nginx reverse-proxy.
-    # Set WEB_BIND=0.0.0.0 in .env to expose the frontend directly at http://SERVER_IP:8000.
+      SERVICE_WAIT_TIMEOUT_SECONDS: ${SERVICE_WAIT_TIMEOUT_SECONDS:-120}
+      SERVICE_WAIT_INTERVAL_SECONDS: ${SERVICE_WAIT_INTERVAL_SECONDS:-2}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     ports:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
       - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8000}:8000"

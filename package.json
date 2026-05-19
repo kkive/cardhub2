@@ -21,7 +21,7 @@
     "db:seed": "pnpm --filter @cards-hub/api prisma:seed",
     "typecheck:web": "pnpm --filter @cards-hub/web typecheck",
     "typecheck": "pnpm typecheck:web",
-    "lint": "pnpm run -r lint",
+    "lint": "pnpm typecheck && node scripts/check-encoding.js",
     "test": "pnpm run -r test",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

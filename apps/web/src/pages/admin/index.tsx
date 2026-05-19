@@ -178,9 +178,9 @@ const OverviewTab: React.FC = () => {
             <Space direction="vertical" size={4} style={{ width: '100%' }}>
               {checks.map(([name, c]) => (
                 <Space key={name} size={8}>
-                  <Tag color={c.status === 'up' ? 'green' : 'red'}>{name}</Tag>
+                  <Tag color={c.ok ? 'green' : 'red'}>{name}</Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {c.message || c.status}
+                    {c.ok ? 'ok' : (c.error || 'error')}
                   </Text>
                 </Space>
               ))}

@@ -79,19 +79,25 @@ scp docker-compose.prod.yml .env.production.example user@server:~/cards-hub/
 # 2. On the server: create .env from the example and fill in real values
 cd ~/cards-hub
 cp .env.production.example .env
-nano .env   # fill in secrets
+nano .env   # fill in secrets -- lines marked [MUST CHANGE] require real values
 
 # 3. Pull images and start
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 
-# 4. Health check
-curl -f http://127.0.0.1:3000/api/health
+# 4. Smoke test (checks .env, compose config, container status, API live/health, web frontend)
+sh scripts/prod-smoke-test.sh
 ```
+
+**Production env fail-fast:** The entrypoint validates required env vars on startup when `NODE_ENV=production`. It rejects empty or placeholder values for `JWT_SECRET`, `MYSQL_PASSWORD`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`, `ADMIN_PASSWORD`, and `MEILI_API_KEY`/`MEILI_MASTER_KEY`. The container will refuse to start if any are missing or still set to `change-me-*` / `your-*` / `example*`. This prevents deploying with default secrets.
 
 The prod compose file uses pre-built images (no `build` sections). On startup, the app container waits for the database TCP port to become reachable (up to 120 s, configurable via `DB_WAIT_TIMEOUT_SECONDS` / `DB_WAIT_INTERVAL_SECONDS`) before running Prisma migrations — this prevents the P1001 "Can't reach database server" race condition.
 
-**Port bindings:** The app container binds API to `127.0.0.1:3000` and web to `127.0.0.1:8000` by default for the server's own nginx. To expose the frontend directly at `http://SERVER_IP:8000` without host nginx, set `WEB_BIND=0.0.0.0` in `.env`. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. After configuring the server's own nginx, the public health check is `https://your-domain/api/health`.
+**Port bindings:** By default, the app container binds API to `127.0.0.1:3000` (internal only) and web to `0.0.0.0:8000` (directly accessible at `http://SERVER_IP:8000`). To use host nginx reverse-proxy for both, set `WEB_BIND=127.0.0.1` in `.env`. Server nginx hint: `/api/` -> `http://127.0.0.1:3000/api/` and `/` -> `http://127.0.0.1:8000`. The container has a built-in healthcheck hitting `/api/health` every 30s.
+
+**Health endpoints:**
+- `GET /api/live` -- Lightweight liveness probe. Always returns HTTP 200 `{ status: 'ok', service: 'cards-hub-api', timestamp }`. Use for container liveness checks.
+- `GET /api/health` -- Full readiness probe. Returns HTTP 200 if all dependencies (database, redis, meilisearch, storage) are healthy, HTTP 503 otherwise. Response: `{ status: 'ok'|'error', service, timestamp, checks: { database, redis, meilisearch, storage } }`.
 
 **First admin:** On first startup, if no admin exists in the database, the API auto-creates one using `ADMIN_EMAIL` + `ADMIN_PASSWORD` from `.env`. Once an admin exists, these env vars are ignored (password is never reset). Alternatively, open `/admin` in the browser to manually create the first admin with email + password — then log in at `/login`.
 
@@ -119,7 +125,8 @@ infra/docker/   - Docker & nginx configuration
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/health` | GET | Health check (DB, Redis, Meilisearch, storage) |
+| `/api/live` | GET | Liveness probe: HTTP 200 `{ status: 'ok', service, timestamp }` |
+| `/api/health` | GET | Readiness probe: HTTP 200 if all deps OK, 503 otherwise. Returns `{ status, service, timestamp, checks }` |
 | `/api/auth/register` | POST | Register a new user |
 | `/api/auth/login` | POST | Login with credentials, returns JWT |
 | `/api/auth/me` | GET | Get current authenticated user |
@@ -272,6 +279,11 @@ pnpm db:generate           # Generate Prisma client
 pnpm typecheck             # Type-check web app
 pnpm build                 # Build all packages
 pnpm test                  # Run tests
-pnpm lint                  # Lint all packages
+pnpm lint                  # Typecheck + mojibake encoding check
 docker compose config --quiet  # Validate compose file
+
+# Full pre-release check (build, typecheck, test, lint, compose config):
+# PowerShell: .\scripts\release-check.ps1
+# Bash:       ./scripts/release-check.sh
+# Add --push to also build and push the Docker image.
 ```
