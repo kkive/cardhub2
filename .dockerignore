@@ -1,0 +1,64 @@
+# Dependencies (including Windows junctions that break tar)
+node_modules
+**/node_modules
+
+# Build outputs (rebuilt inside Docker)
+dist
+**/dist
+build
+**/build
+out
+**/out
+
+# Turborepo / Next.js / Umi caches
+.turbo
+**/.turbo
+.next
+**/.next
+.umi
+**/.umi
+.umi-production
+**/.umi-production
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test & coverage
+coverage
+.nyc_output
+
+# Uploaded / generated files (not needed for image build)
+storage
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Docker meta (not needed inside build context)
+docker-compose.yml
+docker-compose.*.yml
+
+# Documentation (not needed for build)
+README.md
+AGENTS.md
+LICENSE

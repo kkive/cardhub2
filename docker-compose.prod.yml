@@ -1,0 +1,76 @@
+name: cards-hub
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cards_hub}
+      MYSQL_USER: ${MYSQL_USER:-cards}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Set MEILI_MASTER_KEY}
+    volumes:
+      - meilisearch_data:/meili_data
+
+  app:
+    image: ${DOCKERHUB_NAMESPACE:?Set DOCKERHUB_NAMESPACE}/cards-hub:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-mysql://cards:${MYSQL_PASSWORD:?}@mysql:3306/${MYSQL_DATABASE:-cards_hub}}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
+      MEILI_HOST: ${DOCKER_MEILI_HOST:-http://meilisearch:7700}
+      MEILI_API_KEY: ${MEILI_API_KEY:-${MEILI_MASTER_KEY}}
+      NODE_ENV: production
+      PORT: 3000
+      PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-Cards hub}
+      PASSKEY_RP_ID: ${PASSKEY_RP_ID:?Set PASSKEY_RP_ID}
+      PASSKEY_ORIGIN: ${PASSKEY_ORIGIN:?Set PASSKEY_ORIGIN}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cardshub.local}
+      STORAGE_DIR: ${DOCKER_STORAGE_DIR:-/app/storage}
+      MEILI_CARDS_INDEX: ${MEILI_CARDS_INDEX:-cards}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      YIPAY_SECRET: ${YIPAY_SECRET:-}
+      RUN_MIGRATIONS: true
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8000}:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+    volumes:
+      - storage_data:/app/storage
+
+volumes:
+  mysql_data:
+  redis_data:
+  meilisearch_data:
+  storage_data:

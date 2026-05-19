@@ -1,0 +1,126 @@
+name: cards-hub
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cards_hub}
+      MYSQL_USER: ${MYSQL_USER:-cards}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cards}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-dev-master-key}
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-mysql://cards:cards@mysql:3306/cards_hub}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
+      MEILI_HOST: ${DOCKER_MEILI_HOST:-http://meilisearch:7700}
+      MEILI_API_KEY: ${MEILI_API_KEY:-dev-master-key}
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+      PASSKEY_RP_NAME: ${PASSKEY_RP_NAME:-Cards hub}
+      PASSKEY_RP_ID: ${PASSKEY_RP_ID:-localhost}
+      PASSKEY_ORIGIN: ${PASSKEY_ORIGIN:-http://localhost:8000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cardshub.local}
+      STORAGE_DIR: ${DOCKER_STORAGE_DIR:-/app/storage}
+      MEILI_CARDS_INDEX: ${MEILI_CARDS_INDEX:-cards}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      YIPAY_SECRET: ${YIPAY_SECRET:-}
+      RUN_MIGRATIONS: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
+    volumes:
+      - storage_data:/app/storage
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-mysql://cards:cards@mysql:3306/cards_hub}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
+      MEILI_HOST: ${DOCKER_MEILI_HOST:-http://meilisearch:7700}
+      MEILI_API_KEY: ${MEILI_API_KEY:-dev-master-key}
+      NODE_ENV: ${NODE_ENV:-production}
+      STORAGE_DIR: ${DOCKER_STORAGE_DIR:-/app/storage}
+      MEILI_CARDS_INDEX: ${MEILI_CARDS_INDEX:-cards}
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - storage_data:/app/storage
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - storage_data:/var/www/storage:ro
+    depends_on:
+      - api
+      - web
+
+volumes:
+  mysql_data:
+  redis_data:
+  meilisearch_data:
+  storage_data:

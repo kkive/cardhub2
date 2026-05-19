@@ -1,0 +1,397 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───
+
+enum UserRole {
+  user
+  admin
+}
+
+enum CardVisibility {
+  public
+  unlisted
+  private
+}
+
+enum FileVisibility {
+  public
+  paid
+}
+
+enum OrderStatus {
+  pending
+  paid
+  refunded
+  cancelled
+}
+
+enum PaymentProvider {
+  stripe
+  yipay
+  epay
+}
+
+enum PaymentEventStatus {
+  pending
+  succeeded
+  failed
+  refunded
+}
+
+enum ExportFormat {
+  platform_json
+  sillytavern_v2
+  tavernai
+}
+
+enum CardType {
+  character
+  worldbook
+  preset
+}
+
+enum ContentStatus {
+  draft
+  published
+}
+
+enum OrderTargetType {
+  card
+  collection
+}
+
+// ─── User & Auth ───
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String?  @map("password_hash")
+  avatarUrl    String?  @map("avatar_url")
+  role         UserRole @default(user)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  cards        Card[]
+  collections  Collection[]
+  orders       Order[]
+  passkeys     PasskeyCredential[]
+  entitlements Entitlement[]
+
+  @@map("users")
+}
+
+model PasskeyCredential {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  credentialId    String   @unique @map("credential_id")
+  publicKey       Bytes    @map("public_key")
+  counter         BigInt   @default(0)
+  transports      String?  // JSON array of transport types
+  authenticatorType String? @map("authenticator_type")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkey_credentials")
+}
+
+model AdminBootstrapToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  used      Boolean  @default(false)
+  usedBy    String?  @map("used_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  usedAt    DateTime? @map("used_at")
+
+  @@map("admin_bootstrap_tokens")
+}
+
+// ─── Card Content ───
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  cards CardTag[]
+
+  @@map("tags")
+}
+
+model Card {
+  id            String         @id @default(cuid())
+  title         String
+  description   String?        @db.Text
+  content       Json           // card schema payload
+  cardType      CardType       @default(character) @map("card_type")
+  status        ContentStatus  @default(draft)
+  visibility    CardVisibility @default(public)
+  price         Int            @default(0) // 0 = free, >0 = paid (cents)
+  downloadCount Int            @default(0) @map("download_count")
+  authorId      String         @map("author_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  author       User         @relation(fields: [authorId], references: [id])
+  tags         CardTag[]
+  files        FileAsset[]
+  versions     CardVersion[]
+  exports      CardExport[]
+  orders       Order[]
+  entitlements Entitlement[]
+
+  collectionCharacter Collection[] @relation("CollectionCharacter")
+  collectionWorldbook Collection[] @relation("CollectionWorldbook")
+  collectionPreset    Collection[] @relation("CollectionPreset")
+
+  @@index([authorId])
+  @@index([cardType])
+  @@index([visibility])
+  @@index([price])
+  @@index([createdAt])
+  @@map("cards")
+}
+
+model CardVersion {
+  id        String   @id @default(cuid())
+  cardId    String   @map("card_id")
+  version   Int
+  content   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, version])
+  @@index([cardId])
+  @@map("card_versions")
+}
+
+model CardTag {
+  cardId String @map("card_id")
+  tagId  String @map("tag_id")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([cardId, tagId])
+  @@index([tagId])
+  @@map("card_tags")
+}
+
+// ─── Files & Exports ───
+
+model FileAsset {
+  id         String         @id @default(cuid())
+  cardId     String         @map("card_id")
+  filename   String
+  mimeType   String         @map("mime_type")
+  sizeBytes  Int            @map("size_bytes")
+  storageKey String         @map("storage_key")
+  visibility FileVisibility @default(public)
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([visibility])
+  @@map("file_assets")
+}
+
+model CardExport {
+  id        String       @id @default(cuid())
+  cardId    String       @map("card_id")
+  format    ExportFormat
+  filePath  String       @map("file_path")
+  sizeBytes Int          @map("size_bytes")
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([format])
+  @@map("card_exports")
+}
+
+// ─── Payments & Entitlements ───
+
+model Order {
+  id           String          @id @default(cuid())
+  userId       String          @map("user_id")
+  targetType   OrderTargetType @default(card) @map("target_type")
+  cardId       String?         @map("card_id")
+  collectionId String?         @map("collection_id")
+  amount       Int             // cents
+  currency     String          @default("usd")
+  status       OrderStatus     @default(pending)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  user         User           @relation(fields: [userId], references: [id])
+  card         Card?          @relation(fields: [cardId], references: [id])
+  collection   Collection?    @relation(fields: [collectionId], references: [id])
+  payments     PaymentEvent[]
+  entitlements Entitlement[]
+
+  @@index([userId])
+  @@index([cardId])
+  @@index([collectionId])
+  @@index([status])
+  @@map("orders")
+}
+
+model Entitlement {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  orderId      String   @map("order_id")
+  cardId       String?  @map("card_id")
+  collectionId String?  @map("collection_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User        @relation(fields: [userId], references: [id])
+  order      Order       @relation(fields: [orderId], references: [id])
+  card       Card?       @relation(fields: [cardId], references: [id])
+  collection Collection? @relation(fields: [collectionId], references: [id])
+
+  @@unique([userId, cardId])
+  @@unique([userId, collectionId])
+  @@index([userId])
+  @@index([cardId])
+  @@index([collectionId])
+  @@map("entitlements")
+}
+
+model PaymentEvent {
+  id              String             @id @default(cuid())
+  orderId         String             @map("order_id")
+  provider        PaymentProvider
+  externalId      String?            @map("external_id")
+  status          PaymentEventStatus @default(pending)
+  amount          Int                // cents
+  rawPayload      Json?              @map("raw_payload")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@unique([provider, externalId])
+  @@index([orderId])
+  @@index([status])
+  @@map("payment_events")
+}
+
+model WebhookReceipt {
+  id        String   @id @default(cuid())
+  provider  String
+  webhookId String   @unique @map("webhook_id")
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([provider])
+  @@map("webhook_receipts")
+}
+
+// ─── Search Sync State ───
+
+model SearchSyncState {
+  id          String   @id @default(cuid())
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  syncedAt    DateTime @map("synced_at")
+  version     Int      @default(0)
+
+  @@unique([entityType, entityId])
+  @@index([entityType])
+  @@map("search_sync_state")
+}
+
+// ─── System Config ───
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
+}
+
+// ─── Audit Log ───
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  username  String?
+  action    String
+  target    String?
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AuditConfig {
+  id      String  @id @default(cuid())
+  key     String  @unique
+  enabled Boolean @default(true)
+
+  @@map("audit_config")
+}
+
+// ─── Collection ───
+
+model Collection {
+  id              String        @id @default(cuid())
+  title           String
+  description     String?       @db.Text
+  summary         String?
+  coverUrl        String?       @map("cover_url")
+  status          ContentStatus @default(draft)
+  price           Int           @default(0) // cents
+  downloadCount   Int           @default(0) @map("download_count")
+  characterCardId String        @map("character_card_id")
+  worldbookCardId String        @map("worldbook_card_id")
+  presetCardId    String        @map("preset_card_id")
+  authorId        String        @map("author_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  characterCard Card               @relation("CollectionCharacter", fields: [characterCardId], references: [id])
+  worldbookCard Card               @relation("CollectionWorldbook", fields: [worldbookCardId], references: [id])
+  presetCard    Card               @relation("CollectionPreset", fields: [presetCardId], references: [id])
+  author        User               @relation(fields: [authorId], references: [id])
+  orders        Order[]
+  entitlements  Entitlement[]
+  exports       CollectionExport[]
+
+  @@index([authorId])
+  @@index([status])
+  @@map("collections")
+}
+
+model CollectionExport {
+  id           String       @id @default(cuid())
+  collectionId String       @map("collection_id")
+  format       ExportFormat
+  filePath     String       @map("file_path")
+  sizeBytes    Int          @map("size_bytes")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId])
+  @@map("collection_exports")
+}

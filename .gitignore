@@ -1,0 +1,16 @@
+node_modules/
+dist/
+storage/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+Thumbs.db
+coverage/
+.turbo/
+.next/
+.umi/
+.umi-production/
+prisma/migrations/**/migration_lock.toml
+*.tsbuildinfo
